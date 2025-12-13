@@ -12,5 +12,28 @@ mediapipe>=0.10
 # Model handling (future ready)
 joblib>=1.2
 
-#Install Command
-pip3 install -r requirements.txt
+#Install Command: pip3 install -r requirements.txt
+
+
+How Raspi Connected to server:
+""""""
+import requests
+
+SERVER_IP = "10.127.154.238"  # IP komputer server
+
+payload = {
+    "device": "raspi",
+    "responden": "001",
+    "sesi": "1",
+    "type": "vector",
+    "data": {
+        "landmark_length": 936,
+        "sample": [0.12, 0.45, 0.88]
+    }
+}
+
+requests.post(
+    f"http://{SERVER_IP}:8000/upload",
+    json=payload
+)
+""""""
