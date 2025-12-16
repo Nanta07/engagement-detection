@@ -1,0 +1,178 @@
+from flask import Flask, request
+import os
+import time
+import cv2
+import mediapipe as mp
+import joblib
+import csv
+import requests
+
+# ============================================================
+# KONFIGURASI
+# ============================================================
+app = Flask(__name__)
+
+BASE_FOLDER = "/home/elvindo/Documents/pi/engagement_data"
+csv_file_path = None
+
+# SERVER (COMPUTER)
+SERVER_IP = "10.127.154.238"
+SERVER_PORT = 8000
+
+# SESSION STATE
+CURRENT_RESPONDEN = None
+CURRENT_SESI = None
+
+# ============================================================
+# INIT MEDIAPIPE & MODEL
+# ============================================================
+mp_face_mesh = mp.solutions.face_mesh
+face_mesh = mp_face_mesh.FaceMesh(
+    static_image_mode=False,
+    max_num_faces=1
+)
+
+rf_model = joblib.load("random_forest_model_Full_Face.pkl")
+
+# ============================================================
+# HELPER: KIRIM KE SERVER
+# ============================================================
+def send_result_to_server(payload):
+    try:
+        requests.post(
+            f"http://{SERVER_IP}:{SERVER_PORT}/upload_result",
+            json=payload,
+            timeout=3
+        )
+    except Exception as e:
+        print("Failed to send to server:", e)
+
+# ============================================================
+# API: START SESSION
+# ============================================================
+@app.route("/start_new_session", methods=["GET"])
+def start_new_session():
+    global csv_file_path, CURRENT_RESPONDEN, CURRENT_SESI
+
+    CURRENT_RESPONDEN = request.args.get("responden")
+    CURRENT_SESI = request.args.get("sesi")
+
+    if not CURRENT_RESPONDEN or not CURRENT_SESI:
+        return "Missing 'responden' or 'sesi'", 400
+
+    responden_folder = os.path.join(
+        BASE_FOLDER, f"responden_{CURRENT_RESPONDEN}"
+    )
+    session_folder = os.path.join(
+        responden_folder, f"sesi_{CURRENT_SESI}"
+    )
+    engagement_folder = os.path.join(session_folder, "engagement")
+
+    os.makedirs(session_folder, exist_ok=True)
+    for level in ["0", "1", "2", "3"]:
+        os.makedirs(os.path.join(engagement_folder, level), exist_ok=True)
+
+    csv_file_path = os.path.join(
+        session_folder, "engagement_results.csv"
+    )
+    with open(csv_file_path, "w", newline="") as f:
+        writer = csv.writer(f)
+        writer.writerow([
+            "timestamp",
+            "frame",
+            "engagement_level",
+            "response_time",
+            "fps"
+        ])
+
+    return "Session initialized", 200
+
+# ============================================================
+# API: UPLOAD FRAME DARI ESP32
+# ============================================================
+@app.route("/upload", methods=["POST"])
+def upload_file():
+    global csv_file_path
+
+    if csv_file_path is None:
+        return "Session not initialized", 400
+
+    start_time = time.time()
+    timestamp = int(time.time())
+
+    frame_name = f"frame_{timestamp}.jpg"
+    frame_path = os.path.join(
+        os.path.dirname(csv_file_path), frame_name
+    )
+
+    with open(frame_path, "wb") as f:
+        f.write(request.data)
+
+    engagement_level = process_and_classify_image(
+        frame_path, frame_name
+    )
+
+    response_time = time.time() - start_time
+    fps = 1 / response_time if response_time > 0 else 0
+
+    # Simpan CSV lokal Raspi
+    with open(csv_file_path, "a", newline="") as file:
+        writer = csv.writer(file)
+        writer.writerow([
+            timestamp,
+            frame_name,
+            engagement_level,
+            response_time,
+            fps
+        ])
+
+    # KIRIM KE SERVER (FORMAT SESUAI)
+    send_result_to_server({
+        "responden": CURRENT_RESPONDEN,
+        "sesi": CURRENT_SESI,
+        "frame": frame_name,
+        "engagement_level": int(engagement_level),
+        "fps": fps,
+        "response_time": response_time
+    })
+
+    return "File received", 200
+
+# ============================================================
+# PROSES KLASIFIKASI
+# ============================================================
+def process_and_classify_image(image_path, frame_name):
+    frame = cv2.imread(image_path)
+    if frame is None:
+        return -1
+
+    rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+    result = face_mesh.process(rgb_frame)
+
+    engagement_level = -1
+
+    if result.multi_face_landmarks:
+        face_landmarks = result.multi_face_landmarks[0]
+
+        landmarks = [(lm.x, lm.y) for lm in face_landmarks.landmark]
+        flattened = [c for p in landmarks for c in p]
+
+        if len(flattened) == 936:
+            engagement_level = rf_model.predict([flattened])[0]
+
+            save_dir = os.path.join(
+                os.path.dirname(csv_file_path),
+                "engagement",
+                str(engagement_level)
+            )
+            cv2.imwrite(
+                os.path.join(save_dir, frame_name), frame
+            )
+
+    return engagement_level
+
+# ============================================================
+# MAIN
+# ============================================================
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=5000)

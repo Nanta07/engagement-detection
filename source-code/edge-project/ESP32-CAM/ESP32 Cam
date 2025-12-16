@@ -1,208 +1,341 @@
-include "esp_camera.h"
-include <WiFi.h>
-include <HTTPClient.h>
-include "FS.h"
-include "SD_MMC.h"
-include <WebServer.h>
+// esp32cam_engagement.ino - Fix
+// Clean, fixed ESP32-CAM firmware for capturing frames to SD and uploading to Raspberry Pi
+#include "esp_camera.h"
+#include <WiFi.h>
+#include <HTTPClient.h>
+#include "FS.h"
+#include "SD_MMC.h"
+#include <WebServer.h>
+#define CAMERA_MODEL_AI_THINKER
+#include "camera_pins.h"
 
-// ============================================================
-// Konfigurasi Kamera
-// ============================================================
-define CAMERA_MODEL_AI_THINKER
-include "camera_pins.h"
-
-// WiFi Credentials
+// ====================== CONFIG ================================
 const char* ssid = "Xiaomi";
 const char* password = "wifitest08";
 
-// IP Raspberry Pi
-const char* serverIP = "192.168.23.238";
+const char* serverIP = "10.127.154.238"; // Raspberry Pi IP
 const int serverPort = 5000;
 
 WebServer server(80);
 
+// State vars
 bool isRecording = false;
-String folderName;
-String responden;
-String sesi;
+bool sdReady = false;
+String folderName = "";
+String responden = "1";
+String sesi = "1";
 
+unsigned long lastWiFiCheck = 0;
+const unsigned long WIFI_CHECK_INTERVAL = 10UL * 1000UL; // 10s
 
 // ============================================================
-// Start Recording
+// Helper: ensure WiFi connected (simple reconnect)
+void ensureWiFi() {
+  if (WiFi.status() == WL_CONNECTED) return;
+
+  unsigned long start = millis();
+  Serial.printf("WiFi not connected. Trying to reconnect to %s\n", ssid);
+  WiFi.disconnect();
+  WiFi.begin(ssid, password);
+  while (WiFi.status() != WL_CONNECTED && millis() - start < 15000) {
+    delay(300);
+    Serial.print(".");
+  }
+  Serial.println();
+
+  if (WiFi.status() == WL_CONNECTED) {
+    Serial.print("WiFi reconnected. IP: ");
+    Serial.println(WiFi.localIP());
+  } else {
+    Serial.println("WiFi reconnect failed (timeout).");
+  }
+}
+
 // ============================================================
+// Start Recording: request Raspberry Pi to create session
 void startRecording() {
-    HTTPClient http;
-    String url = "http://" + String(serverIP) + ":" + String(serverPort) +
-                 "/start_new_session?responden=" + responden +
-                 "&sesi=" + sesi;
+  if (!sdReady) {
+    server.send(500, "text/plain", "SD Card not ready");
+    Serial.println("startRecording aborted: SD not ready.");
+    return;
+  }
 
-    http.begin(url);
-    int httpResponseCode = http.GET();
+  ensureWiFi();
+  if (WiFi.status() != WL_CONNECTED) {
+    server.send(500, "text/plain", "WiFi not connected");
+    Serial.println("startRecording aborted: WiFi not connected.");
+    return;
+  }
 
-    if (httpResponseCode == 200) {
-        isRecording = true;
-        folderName = "/record_" + String(millis());
-        SD_MMC.mkdir(folderName);
-        server.send(200, "text/plain", "Recording started.");
-    } else {
-        server.send(500, "text/plain", "Failed to start session.");
-    }
+  HTTPClient http;
+  String url = "http://" + String(serverIP) + ":" + String(serverPort) +
+               "/start_new_session?responden=" + responden +
+               "&sesi=" + sesi;
 
-    http.end();
-}
+  Serial.printf("Requesting new session: %s\n", url.c_str());
+  http.begin(url);
+  int httpResponseCode = http.GET();
+  http.end();
 
-
-// ============================================================
-// Stop Recording
-// ============================================================
-void stopRecording() {
-    isRecording = false;
-    sendAllFramesToRaspberryPi();
-    server.send(200, "text/plain", "Recording stopped.");
-}
-
-
-// ============================================================
-// Kirim Frame ke Raspberry Pi
-// ============================================================
-void sendAllFramesToRaspberryPi() {
-    File root = SD_MMC.open(folderName);
-    File file = root.openNextFile();
-
-    while (file) {
-        if (!file.isDirectory()) {
-            HTTPClient http;
-            String url = "http://" + String(serverIP) + ":" +
-                         String(serverPort) + "/upload";
-
-            http.begin(url);
-            http.addHeader("Content-Type", "image/jpeg");
-
-            size_t size = file.size();
-            uint8_t* buffer = new uint8_t[size];
-            file.read(buffer, size);
-
-            int response = http.POST(buffer, size);
-
-            if (response > 0) {
-                Serial.println("Sent frame: " + String(file.name()));
-            } else {
-                Serial.println("Failed to send frame.");
-            }
-
-            delete[] buffer;
-            http.end();
-        }
-        file = root.openNextFile();
-    }
-}
-
-
-// ============================================================
-// Handler untuk parameter responden & sesi
-// ============================================================
-void handleSessionParameters() {
-    if (server.hasArg("responden") && server.hasArg("sesi")) {
-        responden = server.arg("responden");
-        sesi = server.arg("sesi");
-        server.send(200, "text/plain", "Params updated.");
-    } else {
-        server.send(400, "text/plain", "Missing params.");
-    }
-}
-
-
-// ============================================================
-// Setup
-// ============================================================
-void setup() {
-    Serial.begin(115200);
-
-    // Konfigurasi kamera
-    camera_config_t config;
-    config.ledc_channel = LEDC_CHANNEL_0;
-    config.ledc_timer   = LEDC_TIMER_0;
-    config.pin_d0       = Y2_GPIO_NUM;
-    config.pin_d1       = Y3_GPIO_NUM;
-    config.pin_d2       = Y4_GPIO_NUM;
-    config.pin_d3       = Y5_GPIO_NUM;
-    config.pin_d4       = Y6_GPIO_NUM;
-    config.pin_d5       = Y7_GPIO_NUM;
-    config.pin_d6       = Y8_GPIO_NUM;
-    config.pin_d7       = Y9_GPIO_NUM;
-    config.pin_xclk     = XCLK_GPIO_NUM;
-    config.pin_pclk     = PCLK_GPIO_NUM;
-    config.pin_vsync    = VSYNC_GPIO_NUM;
-    config.pin_href     = HREF_GPIO_NUM;
-    config.pin_sccb_sda = SIOD_GPIO_NUM;
-    config.pin_sccb_scl = SIOC_GPIO_NUM;
-    config.pin_pwdn     = PWDN_GPIO_NUM;
-    config.pin_reset    = RESET_GPIO_NUM;
-    config.xclk_freq_hz = 20000000;
-    config.pixel_format = PIXFORMAT_JPEG;
-    config.frame_size   = FRAMESIZE_UXGA;
-    config.jpeg_quality = 12;
-    config.fb_count     = 1;
-
-    if (esp_camera_init(&config) != ESP_OK) {
-        Serial.println("Camera init failed");
+  if (httpResponseCode == 200) {
+    // Create a local folder to store frames temporarily
+    folderName = "/record_" + String(millis());
+    if (!SD_MMC.exists(folderName)) {
+      if (!SD_MMC.mkdir(folderName)) {
+        Serial.println("Failed to create folder on SD card.");
+        server.send(500, "text/plain", "Failed to create SD folder");
         return;
+      }
     }
+    isRecording = true;
+    Serial.println("Recording started. Folder: " + folderName);
+    server.send(200, "text/plain", "Recording started.");
+  } else {
+    Serial.printf("Failed to start session on server. HTTP code: %d\n", httpResponseCode);
+    server.send(500, "text/plain", "Failed to start session on Raspberry Pi");
+  }
+}
 
-    // Flip gambar jika dibutuhkan
-    sensor_t *s = esp_camera_sensor_get();
+// ============================================================
+// Stop Recording: send stored frames then stop
+void stopRecording() {
+  Serial.println("Stopping recording...");
+  isRecording = false;
+  sendAllFramesToRaspberryPi();
+  server.send(200, "text/plain", "Recording stopped.");
+}
+
+// ============================================================
+// Upload all frames from SD folder to Raspberry Pi
+void sendAllFramesToRaspberryPi() {
+  if (!sdReady) {
+    Serial.println("SD not ready. Nothing to send.");
+    return;
+  }
+  if (folderName.length() == 0) {
+    Serial.println("No folderName set. Nothing to send.");
+    return;
+  }
+
+  ensureWiFi();
+  if (WiFi.status() != WL_CONNECTED) {
+    Serial.println("WiFi not connected. Cannot send frames.");
+    return;
+  }
+
+  Serial.println("Sending all frames in folder: " + folderName);
+
+  File root = SD_MMC.open(folderName);
+  if (!root) {
+    Serial.println("Failed to open folder on SD card.");
+    return;
+  }
+
+  File file = root.openNextFile();
+  if (!file) {
+    Serial.println("Folder is empty or cannot iterate files.");
+    root.close();
+    return;
+  }
+
+  int sentCount = 0;
+  while (file) {
+    if (!file.isDirectory()) {
+      size_t fileSize = file.size();
+      if (fileSize == 0) {
+        Serial.println("Skipping zero-size file: " + String(file.name()));
+      } else {
+        // Read file into buffer
+        uint8_t* buffer = (uint8_t*)malloc(fileSize);
+        if (buffer == NULL) {
+          Serial.println("Memory allocation failed for file buffer.");
+          break;
+        }
+        size_t bytesRead = file.read(buffer, fileSize);
+        if (bytesRead != fileSize) {
+          Serial.println("Warning: bytesRead != fileSize");
+        }
+
+        // Send to server
+        HTTPClient http;
+        String url = "http://" + String(serverIP) + ":" + String(serverPort) + "/upload";
+        http.begin(url);
+        http.addHeader("Content-Type", "image/jpeg");
+
+        int httpResponseCode = http.POST(buffer, bytesRead);
+
+        if (httpResponseCode == 200) {
+          Serial.println("Frame sent successfully: " + String(file.name()));
+          sentCount++;
+        } else {
+          Serial.printf("Failed to send %s (HTTP %d)\n", file.name(), httpResponseCode);
+        }
+
+        http.end();
+        free(buffer);
+        delay(100); // small pause to avoid flooding
+      }
+    }
+    file = root.openNextFile();
+  }
+
+  root.close();
+  Serial.printf("Finished sending frames. Total sent: %d\n", sentCount);
+
+  // Optionally: remove folder or files after successful upload
+  // Warning: deleting files requires careful checks. Uncomment if desired.
+  // removeFolder(folderName);
+}
+
+// (Optional helper) Remove folder and its files - use with caution
+void removeFolder(const String &path) {
+  File root = SD_MMC.open(path);
+  if (!root) return;
+  File file = root.openNextFile();
+  while (file) {
+    if (!file.isDirectory()) {
+      String filePath = String(path) + "/" + String(file.name());
+      SD_MMC.remove(filePath);
+      Serial.println("Removed: " + filePath);
+    }
+    file = root.openNextFile();
+  }
+  SD_MMC.rmdir(path);
+  Serial.println("Removed folder: " + path);
+}
+
+// ============================================================
+// HTTP handler to set session parameters
+void handleSessionParameters() {
+  if (server.hasArg("responden") && server.hasArg("sesi")) {
+    responden = server.arg("responden");
+    sesi = server.arg("sesi");
+    Serial.printf("Session params updated: responden=%s sesi=%s\n", responden.c_str(), sesi.c_str());
+    server.send(200, "text/plain", "Session parameters updated.");
+  } else {
+    server.send(400, "text/plain", "Missing parameters: responden & sesi");
+  }
+}
+
+// ============================================================
+// Setup: init camera, SD, WiFi, and web server endpoints
+void setup() {
+  Serial.begin(115200);
+  Serial.println();
+  Serial.println("ESP32-CAM Engagement - booting...");
+
+  // Camera configuration
+  camera_config_t config;
+  config.ledc_channel = LEDC_CHANNEL_0;
+  config.ledc_timer   = LEDC_TIMER_0;
+  config.pin_d0       = Y2_GPIO_NUM;
+  config.pin_d1       = Y3_GPIO_NUM;
+  config.pin_d2       = Y4_GPIO_NUM;
+  config.pin_d3       = Y5_GPIO_NUM;
+  config.pin_d4       = Y6_GPIO_NUM;
+  config.pin_d5       = Y7_GPIO_NUM;
+  config.pin_d6       = Y8_GPIO_NUM;
+  config.pin_d7       = Y9_GPIO_NUM;
+  config.pin_xclk     = XCLK_GPIO_NUM;
+  config.pin_pclk     = PCLK_GPIO_NUM;
+  config.pin_vsync    = VSYNC_GPIO_NUM;
+  config.pin_href     = HREF_GPIO_NUM;
+  config.pin_sccb_sda = SIOD_GPIO_NUM;
+  config.pin_sccb_scl = SIOC_GPIO_NUM;
+  config.pin_pwdn     = PWDN_GPIO_NUM;
+  config.pin_reset    = RESET_GPIO_NUM;
+  config.xclk_freq_hz = 20000000;
+  config.pixel_format = PIXFORMAT_JPEG;
+  config.frame_size   = FRAMESIZE_UXGA;
+  config.jpeg_quality = 12;
+  config.fb_count     = 1;
+
+  if (esp_camera_init(&config) != ESP_OK) {
+    Serial.println("Camera init failed");
+    // do not return; but camera capture will fail later
+  } else {
+    Serial.println("Camera initialized");
+  }
+
+  // Camera flip if necessary
+  sensor_t* s = esp_camera_sensor_get();
+  if (s) {
     s->set_vflip(s, 1);
     s->set_hmirror(s, 1);
+    Serial.println("Camera flip set (vflip + hmirror).");
+  }
 
-    // SD Card
-    if (!SD_MMC.begin()) {
-        Serial.println("SD Card mount failed");
-        return;
-    }
+  // Init SD card
+  if (!SD_MMC.begin()) {
+    Serial.println("SD Card Mount Failed");
+    sdReady = false;
+  } else {
+    sdReady = true;
+    Serial.println("SD Card mounted.");
+  }
 
-    // WiFi
-    WiFi.begin(ssid, password);
-    while (WiFi.status() != WL_CONNECTED) {
-        delay(500);
-        Serial.print(".");
-    }
-    Serial.println("\nWiFi connected");
+  // Connect to WiFi
+  WiFi.begin(ssid, password);
+  Serial.printf("Connecting to WiFi: %s\n", ssid);
+  unsigned long start = millis();
+  while (WiFi.status() != WL_CONNECTED && millis() - start < 15000) {
+    delay(250);
+    Serial.print(".");
+  }
+  Serial.println();
+
+  if (WiFi.status() == WL_CONNECTED) {
+    Serial.print("WiFi connected. IP: ");
     Serial.println(WiFi.localIP());
+  } else {
+    Serial.println("WiFi connection failed (timeout). Continue without network.");
+  }
 
-    // Routing WebServer
-    server.on("/set_session", HTTP_GET, handleSessionParameters);
-    server.on("/start_recording", HTTP_GET, startRecording);
-    server.on("/stop_recording", HTTP_GET, stopRecording);
+  // Setup endpoints
+  server.on("/set_session", HTTP_GET, handleSessionParameters);
+  server.on("/start_recording", HTTP_GET, startRecording);
+  server.on("/stop_recording", HTTP_GET, stopRecording);
 
-    server.begin();
-    Serial.println("HTTP server running");
+  server.begin();
+  Serial.println("HTTP server started on port 80");
 }
 
-
 // ============================================================
-//Loop
-// ============================================================
+// Main loop
 void loop() {
-    server.handleClient();
+  server.handleClient();
 
-    // Capture gambar selama recording aktif
-    if (isRecording) {
-        camera_fb_t* fb = esp_camera_fb_get();
-        if (!fb) {
-            Serial.println("Frame capture failed");
-            return;
-        }
-
-        String path = folderName + "/frame_" + String(millis()) + ".jpg";
-        File file = SD_MMC.open(path, FILE_WRITE);
-
-        if (file) {
-            file.write(fb->buf, fb->len);
-            file.close();
-            Serial.println("Saved frame: " + path);
-        }
-
-        esp_camera_fb_return(fb);
-        delay(100);
+  // Periodically check WiFi and reconnect if needed
+  if (millis() - lastWiFiCheck > WIFI_CHECK_INTERVAL) {
+    lastWiFiCheck = millis();
+    if (WiFi.status() != WL_CONNECTED) {
+      ensureWiFi();
     }
+  }
+
+  // Capture frames if recording and SD ready
+  if (isRecording && sdReady) {
+    camera_fb_t* fb = esp_camera_fb_get();
+    if (!fb) {
+      Serial.println("Frame capture failed");
+      delay(100);
+      return;
+    }
+
+    String fileName = folderName + "/frame_" + String(millis()) + ".jpg";
+    File file = SD_MMC.open(fileName.c_str(), FILE_WRITE);
+    if (!file) {
+      Serial.println("Failed to open file for writing: " + fileName);
+      esp_camera_fb_return(fb);
+      delay(100);
+      return;
+    }
+
+    file.write(fb->buf, fb->len);
+    file.close();
+    Serial.println("Saved frame: " + fileName);
+
+    esp_camera_fb_return(fb);
+    delay(100); // ~10 fps (adjust as needed)
+  }
 }
