@@ -1,24 +1,21 @@
-File Directories
+
+
+Folder Directory Detail:
 server/
 │
-├── app.py                 # Flask server utama (receiver data)
-├── requirements.txt       # Dependency server
-├── README.md              # Dokumentasi server
+├── app.py                     # Flask server utama (receiver dari Raspi)
+├── config.py                  # Konfigurasi server (host, port, path)
+├── requirements.txt           # Dependency server
+├── README.md                  # Dokumentasi server
+├── run_server.bat             # Shortcut run server (Windows)
 │
-├── config/
-│   └── config.py          # Konfigurasi (port, folder, dll)
-│
-├── data/
-│   ├── raw/
-│   │   ├── frames/        # (optional) frame dari raspi
-│   │   └── vectors/       # landmark / feature vector
-│   │
-│   ├── logs/
-│   │   └── engagement.csv # log data utama
-│   │
-│   └── sessions/          # data per responden / sesi
-│
-├── utils/
-│   └── file_utils.py      # helper save file / csv
-│
-└── run_server.bat         # shortcut run server (Windows)
+└── data/
+    │
+    ├── logs/
+    │   └── engagement_log.csv # Log global semua data (SEMUA SESI)
+    │
+    └── sessions/
+        └── responden_1/
+            └── sesi_1/
+                └── results.
+                csv
