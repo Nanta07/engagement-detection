@@ -1,5 +1,4 @@
 # ESP32-CAM Edge Device for Engagement Detection
-
 This ESP32-CAM project:
 - captures frames from camera
 - stores them temporarily in SD card
@@ -30,7 +29,6 @@ Jika Anda ingin, nanti saya bisa buatkan juga versi “extended documentation”
 ---
 
 ## 📖 **Project Overview**
-
 This project implements a real-time **Engagement Detection System** designed to measure user engagement levels using facial landmarks and machine learning. The system integrates **edge computing**, **computer vision**, and **embedded systems** to create a scalable, low-cost, and efficient engagement monitoring solution.
 
 It is composed of three main modules:
@@ -46,7 +44,6 @@ The system detects facial landmarks using **MediaPipe FaceMesh (468 points)** an
 ---
 
 ##  **Objectives**
-
 * Build an end-to-end machine learning pipeline running on low-power hardware.
 * Perform real-time facial landmark extraction on Raspberry Pi.
 * Classify user engagement into four levels:
@@ -64,7 +61,6 @@ The system detects facial landmarks using **MediaPipe FaceMesh (468 points)** an
 The system consists of three interconnected components:
 
 ### **1️⃣ Webcam Application – Raspberry Pi (Frontend + Processing)**
-
 * Real-time webcam feed
 * MediaPipe landmark extraction
 * Engagement classification with Random Forest
@@ -72,7 +68,6 @@ The system consists of three interconnected components:
 * Provides GUI for starting sessions
 
 ### **2️⃣ Flask Server – Raspberry Pi (Backend)**
-
 * Receives HTTP POST images from ESP32-CAM
 * Processes images with MediaPipe
 * Classifies engagement levels
@@ -80,7 +75,6 @@ The system consists of three interconnected components:
 * Generates session-based statistics
 
 ### **3️⃣ ESP32-CAM (Edge Device)**
-
 * Captures images periodically
 * Stores temporary frames on SD card
 * Sends all frames to Flask server after recording

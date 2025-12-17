@@ -1,4 +1,3 @@
-// esp32cam_engagement.ino - Fix
 // Clean, fixed ESP32-CAM firmware for capturing frames to SD and uploading to Raspberry Pi
 #include "esp_camera.h"
 #include <WiFi.h>
