@@ -18,7 +18,7 @@ stop_recording = False  # Variabel global untuk menghentikan proses
 # Inisialisasi MediaPipe dan model klasifikasi
 mp_face_mesh = mp.solutions.face_mesh
 face_mesh = mp_face_mesh.FaceMesh(static_image_mode=False, max_num_faces=5)
-rf_model = joblib.load('(Facial_Landmark)_random_forest_engagement_model_RandomizedSearchCV_tuned.pkl')  # Ganti dengan path model Anda
+rf_model = joblib.load('Fix_kan.pkl')  # Ganti dengan path model Anda
 
 
 def format_timestamp(timestamp):

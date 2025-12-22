@@ -23,7 +23,7 @@ stop_recording = False  # Flag untuk menghentikan rekaman
 mp_face_mesh = mp.solutions.face_mesh
 face_mesh = mp_face_mesh.FaceMesh(static_image_mode=False, max_num_faces=5)
 
-rf_model = joblib.load("random_forest_model_Full_Face.pkl")
+rf_model = joblib.load("Fix_kan.pkl")
 
 
 # ============================================================

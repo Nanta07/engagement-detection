@@ -1,0 +1,236 @@
+import os
+import time
+import cv2
+import mediapipe as mp
+import joblib
+import csv
+import requests
+import tkinter as tk
+from tkinter import messagebox
+from tkcalendar import Calendar
+from PIL import Image, ImageTk
+
+# ============================================================
+# CONFIG
+# ============================================================
+BASE_FOLDER = "/home/elvindo/raspi-engagement/data"
+
+SERVER_IP = "10.201.65.218"   # IP SERVER COMPUTER
+SERVER_PORT = 8000
+
+csv_file_path = None
+video_writer = None
+stop_recording = False
+
+CURRENT_RESPONDEN = "webcam_user"
+CURRENT_SESI = None
+
+# ============================================================
+# MODEL & MEDIAPIPE
+# ============================================================
+mp_face_mesh = mp.solutions.face_mesh
+face_mesh = mp_face_mesh.FaceMesh(
+    static_image_mode=False,
+    max_num_faces=1
+)
+
+rf_model = joblib.load("Fix_kan.pkl")
+
+# ============================================================
+# HELPER
+# ============================================================
+def send_result_to_server(payload):
+    try:
+        requests.post(
+            f"http://{SERVER_IP}:{SERVER_PORT}/upload_result",
+            json=payload,
+            timeout=5
+        )
+    except Exception as e:
+        print("Failed to send to server:", e)
+
+def format_timestamp(ts):
+    return time.strftime("%H:%M:%S", time.localtime(ts))
+
+# ============================================================
+# SESSION
+# ============================================================
+def start_session(selected_date):
+    global csv_file_path, video_writer, stop_recording, CURRENT_SESI
+
+    stop_recording = False
+    CURRENT_SESI = selected_date
+
+    session_folder = os.path.join(BASE_FOLDER, f"sesi_{selected_date}")
+    os.makedirs(session_folder, exist_ok=True)
+
+    engagement_folder = os.path.join(session_folder, "engagement")
+    for lvl in ["0", "1", "2", "3"]:
+        os.makedirs(os.path.join(engagement_folder, lvl), exist_ok=True)
+
+    csv_file_path = os.path.join(session_folder, "engagement_results.csv")
+    with open(csv_file_path, "w", newline="") as f:
+        writer = csv.writer(f)
+        writer.writerow([
+            "timestamp",
+            "time",
+            "frame",
+            "engagement_level",
+            "confidence",
+            "response_time",
+            "fps"
+        ])
+
+    video_writer = cv2.VideoWriter(
+        os.path.join(session_folder, "session_video.mp4"),
+        cv2.VideoWriter_fourcc(*"mp4v"),
+        10,
+        (640, 480)
+    )
+
+    capture_webcam(session_folder)
+
+# ============================================================
+# CAMERA LOOP
+# ============================================================
+def capture_webcam(session_folder):
+    global stop_recording
+
+    cap = cv2.VideoCapture(0)
+
+    window = tk.Toplevel()
+    window.title("Webcam Preview")
+
+    label = tk.Label(window)
+    label.pack()
+
+    tk.Button(
+        window,
+        text="Stop Recording",
+        command=lambda: stop_camera(window)
+    ).pack(pady=10)
+
+    def update():
+        nonlocal cap
+
+        if stop_recording:
+            return
+
+        ret, frame = cap.read()
+        if not ret:
+            return
+
+        start = time.time()
+        ts = int(time.time())
+        frame_name = f"frame_{ts}.jpg"
+
+        level, confidence = classify_frame(frame, frame_name, session_folder)
+
+        response_time = time.time() - start
+        fps = 1 / response_time if response_time > 0 else 0
+
+        with open(csv_file_path, "a", newline="") as f:
+            writer = csv.writer(f)
+            writer.writerow([
+                ts,
+                format_timestamp(ts),
+                frame_name,
+                level,
+                confidence,
+                response_time,
+                fps
+            ])
+
+        video_writer.write(frame)
+
+        # SEND TO SERVER
+        send_result_to_server({
+            "responden": CURRENT_RESPONDEN,
+            "sesi": CURRENT_SESI,
+            "frame": frame_name,
+            "engagement_level": int(level),
+            "fps": fps,
+            "response_time": response_time
+        })
+
+        rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        img = ImageTk.PhotoImage(Image.fromarray(rgb))
+        label.configure(image=img)
+        label.image = img
+
+        window.after(10, update)
+
+    update()
+    window.mainloop()
+
+    cap.release()
+    video_writer.release()
+
+# ============================================================
+# STOP
+# ============================================================
+def stop_camera(window):
+    global stop_recording
+    stop_recording = True
+    window.destroy()
+    show_report()
+
+# ============================================================
+# CLASSIFICATION
+# ============================================================
+def classify_frame(frame, frame_name, session_folder):
+    rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+    result = face_mesh.process(rgb)
+
+    level = -1
+    confidence = 0.0
+
+    if result.multi_face_landmarks:
+        face = result.multi_face_landmarks[0]
+        landmarks = [(lm.x, lm.y) for lm in face.landmark]
+        vector = [c for p in landmarks for c in p]
+
+        if len(vector) == 936:
+            probs = rf_model.predict_proba([vector])[0]
+            level = rf_model.predict([vector])[0]
+            confidence = max(probs)
+
+            save_dir = os.path.join(
+                session_folder, "engagement", str(level)
+            )
+            cv2.imwrite(os.path.join(save_dir, frame_name), frame)
+
+    return level, confidence
+
+# ============================================================
+# REPORT
+# ============================================================
+def show_report():
+    counts = {"0": 0, "1": 0, "2": 0, "3": 0}
+
+    with open(csv_file_path) as f:
+        reader = csv.DictReader(f)
+        for r in reader:
+            if r["engagement_level"] in counts:
+                counts[r["engagement_level"]] += 1
+
+    result = "High Engagement" if (counts["2"] + counts["3"]) > (counts["0"] + counts["1"]) else "Low Engagement"
+
+    messagebox.showinfo("Session Result", str(counts) + "\n\n" + result)
+
+# ============================================================
+# UI
+# ============================================================
+root = tk.Tk()
+root.title("Start Webcam Session")
+
+calendar = Calendar(root, date_pattern="yyyy-mm-dd")
+calendar.pack(pady=10)
+
+tk.Button(
+    root,
+    text="Start Session",
+    command=lambda: start_session(calendar.get_date())
+).pack(pady=20)
+
+root.mainloop()
