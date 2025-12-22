@@ -15,15 +15,17 @@ from PIL import Image, ImageTk
 # ============================================================
 BASE_FOLDER = "/home/elvindo/raspi-engagement/data"
 
-SERVER_IP = "10.201.65.218"   # IP SERVER COMPUTER
+SERVER_IP = "10.201.65.218"   # IP SERVER
 SERVER_PORT = 8000
+
+CURRENT_RESPONDEN = "webcam_user"
+CURRENT_SESI = None
 
 csv_file_path = None
 video_writer = None
 stop_recording = False
 
-CURRENT_RESPONDEN = "webcam_user"
-CURRENT_SESI = None
+os.makedirs(BASE_FOLDER, exist_ok=True)
 
 # ============================================================
 # MODEL & MEDIAPIPE
@@ -41,13 +43,14 @@ rf_model = joblib.load("Fix_kan.pkl")
 # ============================================================
 def send_result_to_server(payload):
     try:
-        requests.post(
+        r = requests.post(
             f"http://{SERVER_IP}:{SERVER_PORT}/upload_result",
             json=payload,
             timeout=5
         )
+        print("Server response:", r.status_code)
     except Exception as e:
-        print("Failed to send to server:", e)
+        print("❌ Failed to send:", e)
 
 def format_timestamp(ts):
     return time.strftime("%H:%M:%S", time.localtime(ts))
@@ -143,7 +146,9 @@ def capture_webcam(session_folder):
 
         video_writer.write(frame)
 
+        # =======================
         # SEND TO SERVER
+        # =======================
         send_result_to_server({
             "responden": CURRENT_RESPONDEN,
             "sesi": CURRENT_SESI,
@@ -167,7 +172,7 @@ def capture_webcam(session_folder):
     video_writer.release()
 
 # ============================================================
-# STOP
+# STOP & REPORT
 # ============================================================
 def stop_camera(window):
     global stop_recording
@@ -175,9 +180,6 @@ def stop_camera(window):
     window.destroy()
     show_report()
 
-# ============================================================
-# CLASSIFICATION
-# ============================================================
 def classify_frame(frame, frame_name, session_folder):
     rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
     result = face_mesh.process(rgb)
@@ -192,7 +194,7 @@ def classify_frame(frame, frame_name, session_folder):
 
         if len(vector) == 936:
             probs = rf_model.predict_proba([vector])[0]
-            level = rf_model.predict([vector])[0]
+            level = int(rf_model.predict([vector])[0])
             confidence = max(probs)
 
             save_dir = os.path.join(
@@ -202,21 +204,8 @@ def classify_frame(frame, frame_name, session_folder):
 
     return level, confidence
 
-# ============================================================
-# REPORT
-# ============================================================
 def show_report():
-    counts = {"0": 0, "1": 0, "2": 0, "3": 0}
-
-    with open(csv_file_path) as f:
-        reader = csv.DictReader(f)
-        for r in reader:
-            if r["engagement_level"] in counts:
-                counts[r["engagement_level"]] += 1
-
-    result = "High Engagement" if (counts["2"] + counts["3"]) > (counts["0"] + counts["1"]) else "Low Engagement"
-
-    messagebox.showinfo("Session Result", str(counts) + "\n\n" + result)
+    messagebox.showinfo("Session", "Session selesai")
 
 # ============================================================
 # UI

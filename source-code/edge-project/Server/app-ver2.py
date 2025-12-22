@@ -19,11 +19,13 @@ os.makedirs(SESSION_DIR, exist_ok=True)
 GLOBAL_LOG = os.path.join(LOG_DIR, "engagement_log.csv")
 
 # ============================================================
-# INIT
+# INIT APP
 # ============================================================
 app = Flask(__name__)
 
-# Init global CSV log
+# ============================================================
+# INIT GLOBAL CSV
+# ============================================================
 if not os.path.exists(GLOBAL_LOG):
     with open(GLOBAL_LOG, "w", newline="") as f:
         writer = csv.writer(f)
@@ -46,14 +48,14 @@ def home():
 
 @app.route("/upload_result", methods=["POST"])
 def upload_result():
-    data = request.json
+    data = request.get_json(force=True)
 
-    responden = data.get("responden")
-    sesi = data.get("sesi")
-    frame = data.get("frame")
-    engagement = data.get("engagement_level")
-    fps = data.get("fps")
-    response_time = data.get("response_time")
+    responden = data["responden"]
+    sesi = data["sesi"]
+    frame = data["frame"]
+    engagement = data["engagement_level"]
+    fps = data["fps"]
+    response_time = data["response_time"]
 
     timestamp = datetime.now().isoformat()
 
@@ -103,10 +105,10 @@ def upload_result():
             response_time
         ])
 
-    return jsonify({"status": "saved"}), 200
+    return jsonify({"status": "ok"}), 200
 
 # ============================================================
 # MAIN
 # ============================================================
 if __name__ == "__main__":
-    app.run(host=SERVER_HOST, port=SERVER_PORT)
+    app.run(host=SERVER_HOST, port=SERVER_PORT, debug=True)
