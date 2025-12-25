@@ -31,3 +31,8 @@ joblib \
 Pillow \
 tkcalendar \
 websockets
+
+pip install numpy==1.26.4
+pip install opencv-python==4.8.1.78
+pip install mediapipe==0.10.5
+pip install joblib
