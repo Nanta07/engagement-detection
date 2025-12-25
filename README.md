@@ -90,3 +90,5 @@ The system consists of three interconnected components:
 * Scikit-Learn
 * Tkinter
 * Joblib
+
+https://drive.google.com/drive/folders/1x2LSqTUsvFAVsdGVVYCXuf560xCYPDOl?usp=sharing
