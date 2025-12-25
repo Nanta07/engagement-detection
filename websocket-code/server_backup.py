@@ -1,4 +1,7 @@
-from flask import Flask, request, jsonify
+# Server WebSocket for accepting engagement data from Raspberry Pi clients
+
+from flask import Flask
+from flask_socketio import SocketIO, emit
 import os
 import csv
 from datetime import datetime
@@ -22,9 +25,10 @@ GLOBAL_LOG = os.path.join(LOG_DIR, "engagement_log.csv")
 # INIT APP
 # ============================================================
 app = Flask(__name__)
+socketio = SocketIO(app, cors_allowed_origins="*")
 
 # ============================================================
-# INIT GLOBAL CSV
+# INIT CSV
 # ============================================================
 if not os.path.exists(GLOBAL_LOG):
     with open(GLOBAL_LOG, "w", newline="") as f:
@@ -40,43 +44,25 @@ if not os.path.exists(GLOBAL_LOG):
         ])
 
 # ============================================================
-# ROUTES
+# SOCKET EVENTS
 # ============================================================
+@socketio.on("connect")
+def on_connect():
+    print("🔌 Raspi connected")
 
-@app.route("/")
-def home():
-    return "Engagement Server Running", 200
+@socketio.on("disconnect")
+def on_disconnect():
+    print("❌ Raspi disconnected")
 
+@socketio.on("engagement_result")
+def on_engagement_result(data):
+    print("📥 Data received:", data)
 
-@app.route("/health")
-def health():
-    return jsonify({"status": "ok"}), 200
-
-
-@app.route("/upload_result", methods=["POST"])
-def upload_result():
-    # ===============================
-    # SAFE JSON PARSING
-    # ===============================
-    data = request.get_json(force=True, silent=True)
-    if not data:
-        return jsonify({"error": "Invalid or empty JSON"}), 400
-
-    # ===============================
-    # SAFE DATA EXTRACTION
-    # ===============================
-    responden = data.get("responden", "unknown")
-    sesi = data.get("sesi", "unknown")
-    frame = data.get("frame", "")
-    engagement = data.get("engagement_level", -1)
-    fps = data.get("fps", 0)
-    response_time = data.get("response_time", 0)
+    responden = data["responden"]
+    sesi = data["sesi"]
 
     timestamp = datetime.now().isoformat()
 
-    # ===============================
-    # SESSION FOLDER
-    # ===============================
     session_path = os.path.join(
         SESSION_DIR,
         f"responden_{responden}",
@@ -86,9 +72,6 @@ def upload_result():
 
     session_csv = os.path.join(session_path, "results.csv")
 
-    # ===============================
-    # INIT SESSION CSV
-    # ===============================
     if not os.path.exists(session_csv):
         with open(session_csv, "w", newline="") as f:
             writer = csv.writer(f)
@@ -100,41 +83,32 @@ def upload_result():
                 "response_time"
             ])
 
-    # ===============================
-    # WRITE SESSION CSV
-    # ===============================
     with open(session_csv, "a", newline="") as f:
         writer = csv.writer(f)
         writer.writerow([
             timestamp,
-            frame,
-            engagement,
-            fps,
-            response_time
+            data["frame"],
+            data["engagement_level"],
+            data["fps"],
+            data["response_time"]
         ])
 
-    # ===============================
-    # WRITE GLOBAL CSV
-    # ===============================
     with open(GLOBAL_LOG, "a", newline="") as f:
         writer = csv.writer(f)
         writer.writerow([
             timestamp,
             responden,
             sesi,
-            frame,
-            engagement,
-            fps,
-            response_time
+            data["frame"],
+            data["engagement_level"],
+            data["fps"],
+            data["response_time"]
         ])
 
-    return jsonify({"status": "saved"}), 200
-
+    emit("ack", {"status": "saved"})
 
 # ============================================================
 # MAIN
 # ============================================================
 if __name__ == "__main__":
-    print("🚀 Engagement Server starting...")
-    print(f"📡 Listening on {SERVER_HOST}:{SERVER_PORT}")
-    app.run(host=SERVER_HOST, port=SERVER_PORT)
+    socketio.run(app, host=SERVER_HOST, port=SERVER_PORT)

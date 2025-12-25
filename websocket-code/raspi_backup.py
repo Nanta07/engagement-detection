@@ -1,3 +1,5 @@
+# Raspi as a client to capture webcam and send engagement data to server
+
 import os
 import time
 import cv2
