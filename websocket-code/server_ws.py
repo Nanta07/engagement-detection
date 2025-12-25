@@ -1,4 +1,4 @@
-#Deploy WebSocket Server to receive engagement data from Raspberry Pi clients and log them into structured CSV files
+# server_ws.py
 import asyncio
 import websockets
 import json
@@ -6,61 +6,38 @@ import os
 import csv
 from datetime import datetime
 
-# ============================================================
-# CONFIG
-# ============================================================
 HOST = "0.0.0.0"
 PORT = 8000
 
 BASE_DIR = "data"
-LOG_DIR = os.path.join(BASE_DIR, "logs")
 SESSION_DIR = os.path.join(BASE_DIR, "sessions")
+LOG_DIR = os.path.join(BASE_DIR, "logs")
 
-os.makedirs(LOG_DIR, exist_ok=True)
 os.makedirs(SESSION_DIR, exist_ok=True)
+os.makedirs(LOG_DIR, exist_ok=True)
 
 GLOBAL_LOG = os.path.join(LOG_DIR, "engagement_log.csv")
 
-# ============================================================
-# INIT GLOBAL CSV
-# ============================================================
 if not os.path.exists(GLOBAL_LOG):
     with open(GLOBAL_LOG, "w", newline="") as f:
-        writer = csv.writer(f)
-        writer.writerow([
-            "timestamp",
-            "responden",
-            "sesi",
-            "frame",
-            "engagement_level",
-            "fps",
-            "response_time"
+        csv.writer(f).writerow([
+            "timestamp","responden","sesi",
+            "frame","engagement_level",
+            "fps","response_time"
         ])
 
-# ============================================================
-# WEBSOCKET HANDLER
-# ============================================================
 async def handler(websocket):
-    print("✅ Raspi connected")
+    print("✅ Client connected")
 
-    async for message in websocket:
-        try:
+    try:
+        async for message in websocket:
             data = json.loads(message)
-
-            if data.get("type") != "engagement":
-                continue
 
             responden = data["responden"]
             sesi = data["sesi"]
-            frame = data["frame"]
-            engagement = data["engagement_level"]
-            fps = data["fps"]
-            response_time = data["response_time"]
-            timestamp = data["timestamp"]
 
-            iso_time = datetime.fromtimestamp(timestamp).isoformat()
+            timestamp = datetime.now().isoformat()
 
-            # Folder per responden & sesi
             session_path = os.path.join(
                 SESSION_DIR,
                 f"responden_{responden}",
@@ -72,47 +49,38 @@ async def handler(websocket):
 
             if not os.path.exists(session_csv):
                 with open(session_csv, "w", newline="") as f:
-                    writer = csv.writer(f)
-                    writer.writerow([
-                        "timestamp",
-                        "frame",
-                        "engagement_level",
-                        "fps",
-                        "response_time"
+                    csv.writer(f).writerow([
+                        "timestamp","frame",
+                        "engagement_level","fps","response_time"
                     ])
 
             with open(session_csv, "a", newline="") as f:
-                writer = csv.writer(f)
-                writer.writerow([
-                    iso_time,
-                    frame,
-                    engagement,
-                    fps,
-                    response_time
+                csv.writer(f).writerow([
+                    timestamp,
+                    data["frame"],
+                    data["engagement_level"],
+                    data["fps"],
+                    data["response_time"]
                 ])
 
             with open(GLOBAL_LOG, "a", newline="") as f:
-                writer = csv.writer(f)
-                writer.writerow([
-                    iso_time,
+                csv.writer(f).writerow([
+                    timestamp,
                     responden,
                     sesi,
-                    frame,
-                    engagement,
-                    fps,
-                    response_time
+                    data["frame"],
+                    data["engagement_level"],
+                    data["fps"],
+                    data["response_time"]
                 ])
 
-            print(f"📥 {responden} | sesi {sesi} | level {engagement}")
+            await websocket.send(json.dumps({"status": "ok"}))
 
-        except Exception as e:
-            print("❌ Error:", e)
+    except websockets.exceptions.ConnectionClosed:
+        print("❌ Client disconnected")
 
-# ============================================================
-# MAIN
-# ============================================================
 async def main():
-    print(f"🚀 WebSocket Server running on {PORT}")
+    print(f"🚀 WebSocket Server running on {HOST}:{PORT}")
     async with websockets.serve(handler, HOST, PORT):
         await asyncio.Future()
 
