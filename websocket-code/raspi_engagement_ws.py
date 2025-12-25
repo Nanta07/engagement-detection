@@ -1,3 +1,5 @@
+# Deploy WebSocket Client on Raspberry Pi to capture webcam video, classify engagement levels using a pre-trained model, and send data to the server while saving locally.
+
 import asyncio
 import websockets
 import json
