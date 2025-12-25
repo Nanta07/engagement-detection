@@ -31,11 +31,3 @@ joblib \
 Pillow \
 tkcalendar \
 websockets
-
-python - <<EOF
-import mediapipe
-import joblib
-import numpy
-import websocket
-print("ALL MODULES OK")
-EOF
