@@ -19,3 +19,20 @@ dns=192.168.4.1
 
 [ipv6]
 method=ignore
+
+// Konfigurasi dnsmasq (DHCP Server)
+interface=wlan0
+dhcp-range=192.168.4.10,192.168.4.50,255.255.255.0,24h
+
+// Konfigurasi hostapd (Access Point)
+interface=wlan0
+driver=nl80211
+ssid=RASPI_ESP32_AP
+hw_mode=g
+channel=6
+wmm_enabled=0
+auth_algs=1
+wpa=2
+wpa_passphrase=raspi12345
+wpa_key_mgmt=WPA-PSK
+rsn_pairwise=CCMP
