@@ -123,3 +123,7 @@ wpa=2
 wpa_passphrase=raspi12345
 wpa_key_mgmt=WPA-PSK
 rsn_pairwise=CCMP
+
+[Service]
+ExecStart=
+ExecStart=/usr/sbin/hostapd -B -P /run/hostapd.pid $DAEMON_OPTS $DAEMON_CONF
