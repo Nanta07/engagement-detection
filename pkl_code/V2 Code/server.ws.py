@@ -104,3 +104,22 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
+
+    
+interface=wlan0
+driver=nl80211
+
+ssid=RASPI_ESP32_AP
+hw_mode=g
+channel=6
+
+ieee80211n=1
+wmm_enabled=0
+
+auth_algs=1
+ignore_broadcast_ssid=0
+
+wpa=2
+wpa_passphrase=raspi12345
+wpa_key_mgmt=WPA-PSK
+rsn_pairwise=CCMP
