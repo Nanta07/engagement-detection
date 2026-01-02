@@ -5,6 +5,18 @@ This ESP32-CAM project:
 - sends all frames to Raspberry Pi Flask server
 - works as an Edge Device (image acquisition only)
 
+interface=wlan0
+driver=nl80211
+ssid=RASPI_ESP32_AP
+hw_mode=g
+channel=6
+wmm_enabled=0
+auth_algs=1
+wpa=2
+wpa_passphrase=raspi12345
+wpa_key_mgmt=WPA-PSK
+rsn_pairwise=CCMP
+
 ## Steps
 1. Connect to WiFi
 2. Receive "start_recording" from browser / system
@@ -92,16 +104,3 @@ The system consists of three interconnected components:
 * Joblib
 
 https://drive.google.com/drive/folders/1x2LSqTUsvFAVsdGVVYCXuf560xCYPDOl?usp=sharing
-
-
-interface=wlan0
-driver=nl80211
-ssid=RASPI_ESP32_AP
-hw_mode=g
-channel=6
-wmm_enabled=0
-auth_algs=1
-wpa=2
-wpa_passphrase=raspi12345
-wpa_key_mgmt=WPA-PSK
-rsn_pairwise=CCMP
