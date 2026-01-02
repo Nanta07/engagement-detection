@@ -1,3 +1,5 @@
+# Code raspi for connect with ESP32 camera module and upload to the server
+
 from flask import Flask, request
 import os
 import time
@@ -18,7 +20,7 @@ app = Flask(__name__)
 # CONFIG
 # ============================================================
 BASE_FOLDER = "/home/elvindo/raspi-engagement/esp32_data"
-WS_SERVER = "ws://10.34.3.209:8000"
+WS_SERVER = "ws://10.34.3.210:8000"
 
 os.makedirs(BASE_FOLDER, exist_ok=True)
 

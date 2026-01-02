@@ -18,7 +18,7 @@ const char* WIFI_PASS = "raspi12345";
 
 // Raspberry Pi AP IP
 const char* RASPI_IP = "192.168.4.1";
-const int   RASPI_PORT = 5000;
+const int   RASPI_PORT = 5000;  
 
 // =====================================================
 WebServer server(80);
