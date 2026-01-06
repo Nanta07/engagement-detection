@@ -1,143 +1,230 @@
-import serial
-import struct
 import os
 import time
-import cv2
 import csv
-import zipfile
-import shutil
-import joblib
+import serial
+import struct
+import threading
+import cv2
 import mediapipe as mp
-from flask import Flask, request
+import joblib
+import requests
+import tkinter as tk
+from tkinter import messagebox
+from tkcalendar import Calendar
+from PIL import Image, ImageTk
+import numpy as np
 
-# ===============================
+# ============================================================
 # CONFIG
-# ===============================
+# ============================================================
+BASE_FOLDER = "/home/elvindo/raspi-engagement/data"
 SERIAL_PORT = "/dev/ttyUSB0"
-BAUDRATE = 921600
+BAUDRATE = 115200
 
-BASE_FOLDER = "sessions"
-MODEL_PATH = "Fix_kan.pkl"
+SERVER_IP = "10.201.65.218"
+SERVER_PORT = 8000
+
+CURRENT_RESPONDEN = "esp32_user"
+CURRENT_SESI = None
+
+SESSION_ACTIVE = False
+STOP_RECORDING = False
+
+csv_file_path = None
 
 os.makedirs(BASE_FOLDER, exist_ok=True)
 
-# ===============================
-# FLASK
-# ===============================
-app = Flask(__name__)
-CURRENT_SESSION = None
-
-# ===============================
-# MEDIAPIPE & MODEL
-# ===============================
+# ============================================================
+# MODEL & MEDIAPIPE
+# ============================================================
 mp_face_mesh = mp.solutions.face_mesh
-face_mesh = mp_face_mesh.FaceMesh(static_image_mode=False, max_num_faces=1)
-model = joblib.load(MODEL_PATH)
+face_mesh = mp_face_mesh.FaceMesh(
+    static_image_mode=False,
+    max_num_faces=1
+)
 
-# ===============================
-# SESSION CLASS
-# ===============================
-class Session:
-    def __init__(self, responden, sesi):
-        self.responden = responden
-        self.sesi = sesi
-        self.root = os.path.join(BASE_FOLDER, f"{responden}_{sesi}")
-        self.frame_dir = os.path.join(self.root, "frames")
-        self.csv_path = os.path.join(self.root, "results.csv")
+rf_model = joblib.load("Fix_kan.pkl")
 
-        os.makedirs(self.frame_dir, exist_ok=True)
-
-        with open(self.csv_path, "w", newline="") as f:
-            csv.writer(f).writerow([
-                "timestamp", "frame",
-                "engagement", "confidence",
-                "response_time", "fps"
-            ])
-
-    def classify(self, img_path):
-        start = time.time()
-        frame = cv2.imread(img_path)
-        if frame is None:
-            return -1, 0, 0, 0
-
-        rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-        res = face_mesh.process(rgb)
-
-        level, conf = -1, 0
-        if res.multi_face_landmarks:
-            vec = []
-            for p in res.multi_face_landmarks[0].landmark:
-                vec.extend([p.x, p.y])
-
-            if len(vec) == 936:
-                probs = model.predict_proba([vec])[0]
-                level = int(model.predict([vec])[0])
-                conf = float(max(probs))
-
-        rt = time.time() - start
-        fps = 1 / rt if rt > 0 else 0
-        return level, conf, rt, fps
-
-    def log(self, fname, lvl, conf, rt, fps):
-        with open(self.csv_path, "a", newline="") as f:
-            csv.writer(f).writerow([
-                int(time.time()*1000),
-                fname, lvl, conf, rt, fps
-            ])
-
-# ===============================
-# SERIAL READER THREAD
-# ===============================
+# ============================================================
+# SERIAL
+# ============================================================
 ser = serial.Serial(SERIAL_PORT, BAUDRATE, timeout=1)
 
 def read_frame():
     while True:
-        if ser.read() == b'\xAA' and ser.read() == b'\x55':
-            length = struct.unpack("<I", ser.read(4))[0]
-            return ser.read(length)
+        if ser.read(1) == b'\xAA' and ser.read(1) == b'\x55':
+            size = struct.unpack("<I", ser.read(4))[0]
+            data = ser.read(size)
+            if len(data) == size:
+                return data
 
-# ===============================
-# FLASK ROUTES
-# ===============================
-@app.route("/start", methods=["POST"])
-def start():
-    global CURRENT_SESSION
-    data = request.json
-    CURRENT_SESSION = Session(
-        data["responden"],
-        data["sesi"]
-    )
-    return "SESSION STARTED", 200
+# ============================================================
+# SERVER
+# ============================================================
+def send_result_to_server(payload):
+    try:
+        requests.post(
+            f"http://{SERVER_IP}:{SERVER_PORT}/upload_result",
+            json=payload,
+            timeout=3
+        )
+    except:
+        pass
 
-@app.route("/stop", methods=["POST"])
-def stop():
-    global CURRENT_SESSION
-    CURRENT_SESSION = None
-    return "SESSION STOPPED", 200
+def format_timestamp(ts):
+    return time.strftime("%H:%M:%S", time.localtime(ts))
 
-# ===============================
-# MAIN LOOP
-# ===============================
-def main_loop():
-    global CURRENT_SESSION
+# ============================================================
+# CLASSIFICATION
+# ============================================================
+def classify_frame(frame, frame_name, session_folder):
+    rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+    result = face_mesh.process(rgb)
+
+    level = -1
+    confidence = 0.0
+
+    if result.multi_face_landmarks:
+        vec = []
+        for lm in result.multi_face_landmarks[0].landmark:
+            vec.extend([lm.x, lm.y])
+
+        if len(vec) == 936:
+            probs = rf_model.predict_proba([vec])[0]
+            level = int(rf_model.predict([vec])[0])
+            confidence = max(probs)
+
+            save_dir = os.path.join(
+                session_folder, "engagement", str(level)
+            )
+            cv2.imwrite(os.path.join(save_dir, frame_name), frame)
+
+    return level, confidence
+
+# ============================================================
+# SESSION LOOP
+# ============================================================
+def serial_loop(label):
+    global SESSION_ACTIVE, STOP_RECORDING
+
     while True:
         jpeg = read_frame()
-        if CURRENT_SESSION is None:
+        if not SESSION_ACTIVE or STOP_RECORDING:
             continue
 
-        fname = f"{int(time.time()*1000)}.jpg"
-        path = os.path.join(CURRENT_SESSION.frame_dir, fname)
+        start = time.time()
+        ts = int(time.time())
+        frame_name = f"frame_{ts}.jpg"
 
-        with open(path, "wb") as f:
-            f.write(jpeg)
+        frame = cv2.imdecode(
+            np.frombuffer(jpeg, np.uint8),
+            cv2.IMREAD_COLOR
+        )
 
-        lvl, conf, rt, fps = CURRENT_SESSION.classify(path)
-        CURRENT_SESSION.log(fname, lvl, conf, rt, fps)
+        level, confidence = classify_frame(
+            frame, frame_name, SESSION_FOLDER
+        )
 
-# ===============================
-# RUN
-# ===============================
-if __name__ == "__main__":
-    import threading
-    threading.Thread(target=main_loop, daemon=True).start()
-    app.run(host="0.0.0.0", port=5000)
+        response_time = time.time() - start
+        fps = 1 / response_time if response_time > 0 else 0
+
+        with open(csv_file_path, "a", newline="") as f:
+            writer = csv.writer(f)
+            writer.writerow([
+                ts,
+                format_timestamp(ts),
+                frame_name,
+                level,
+                confidence,
+                response_time,
+                fps
+            ])
+
+        send_result_to_server({
+            "responden": CURRENT_RESPONDEN,
+            "sesi": CURRENT_SESI,
+            "frame": frame_name,
+            "engagement_level": int(level),
+            "fps": fps,
+            "response_time": response_time
+        })
+
+        rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        img = ImageTk.PhotoImage(Image.fromarray(rgb))
+        label.configure(image=img)
+        label.image = img
+
+# ============================================================
+# SESSION CONTROL
+# ============================================================
+def start_session(selected_date, label):
+    global CURRENT_SESI, SESSION_ACTIVE, STOP_RECORDING
+    global csv_file_path, SESSION_FOLDER
+
+    STOP_RECORDING = False
+    SESSION_ACTIVE = True
+    CURRENT_SESI = selected_date
+
+    SESSION_FOLDER = os.path.join(BASE_FOLDER, f"sesi_{selected_date}")
+    os.makedirs(SESSION_FOLDER, exist_ok=True)
+
+    engagement_folder = os.path.join(SESSION_FOLDER, "engagement")
+    for lvl in ["0", "1", "2", "3"]:
+        os.makedirs(os.path.join(engagement_folder, lvl), exist_ok=True)
+
+    csv_file_path = os.path.join(
+        SESSION_FOLDER, "engagement_results.csv"
+    )
+
+    with open(csv_file_path, "w", newline="") as f:
+        writer = csv.writer(f)
+        writer.writerow([
+            "timestamp",
+            "time",
+            "frame",
+            "engagement_level",
+            "confidence",
+            "response_time",
+            "fps"
+        ])
+
+    threading.Thread(
+        target=serial_loop,
+        args=(label,),
+        daemon=True
+    ).start()
+
+def stop_session(window):
+    global STOP_RECORDING, SESSION_ACTIVE
+    STOP_RECORDING = True
+    SESSION_ACTIVE = False
+    window.destroy()
+    messagebox.showinfo("Session", "Session selesai")
+
+# ============================================================
+# UI
+# ============================================================
+root = tk.Tk()
+root.title("ESP32 Engagement Session")
+
+calendar = Calendar(root, date_pattern="yyyy-mm-dd")
+calendar.pack(pady=10)
+
+preview_label = tk.Label(root)
+preview_label.pack()
+
+tk.Button(
+    root,
+    text="Start Session",
+    command=lambda: start_session(
+        calendar.get_date(), preview_label
+    )
+).pack(pady=10)
+
+tk.Button(
+    root,
+    text="Stop Session",
+    command=lambda: stop_session(root)
+).pack(pady=10)
+
+root.mainloop()
