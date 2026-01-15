@@ -1,7 +1,4 @@
-# ============================================================
 # Raspberry Pi Engagement Detection - MLP
-# ============================================================
-
 import os
 import time
 import cv2
@@ -14,9 +11,7 @@ from tkcalendar import Calendar
 from PIL import Image, ImageTk
 import numpy as np
 
-# ============================================================
 # GLOBAL CONFIG
-# ============================================================
 
 BASE_FOLDER = "/home/elvindo/Documents/pi/Day2"
 
@@ -27,19 +22,13 @@ csv_file_path = None
 video_writer = None
 stop_recording = False
 
-# ============================================================
 # LOAD MODEL
-# ============================================================
-
 model  = joblib.load(MODEL_PATH)
 scaler = joblib.load(SCALER_PATH)
 
 print("[OK] MLP model & scaler loaded")
 
-# ============================================================
 # MEDIAPIPE INIT
-# ============================================================
-
 mp_face_mesh = mp.solutions.face_mesh
 face_mesh = mp_face_mesh.FaceMesh(
     static_image_mode=False,
@@ -49,10 +38,7 @@ face_mesh = mp_face_mesh.FaceMesh(
     min_tracking_confidence=0.5
 )
 
-# ============================================================
 # UTILITIES
-# ============================================================
-
 def format_timestamp(ts):
     return time.strftime("%H:%M:%S", time.localtime(ts))
 
@@ -65,10 +51,7 @@ def engagement_label(level):
         3: ("Very High", (0, 255, 0))
     }.get(level, ("Unknown", (200, 200, 200)))
 
-# ============================================================
 # SESSION HANDLER
-# ============================================================
-
 def start_session(selected_date):
     global csv_file_path, video_writer, stop_recording
     stop_recording = False
@@ -96,10 +79,7 @@ def start_session(selected_date):
 
     capture_webcam(session_folder)
 
-# ============================================================
 # CAMERA LOOP
-# ============================================================
-
 def capture_webcam(session_folder):
     global stop_recording
 
@@ -184,10 +164,7 @@ def capture_webcam(session_folder):
     cv2.destroyAllWindows()
     show_report()
 
-# ============================================================
 # CLASSIFICATION
-# ============================================================
-
 def classify_frame(frame, frame_name, session_folder):
     rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
     result = face_mesh.process(rgb)
@@ -212,10 +189,7 @@ def classify_frame(frame, frame_name, session_folder):
 
     return level, conf
 
-# ============================================================
 # STOP & REPORT
-# ============================================================
-
 def stop_camera(win):
     global stop_recording
     stop_recording = True
@@ -250,10 +224,7 @@ FINAL RESULT:
 """
     )
 
-# ============================================================
 # MAIN UI
-# ============================================================
-
 root = tk.Tk()
 root.title("Engagement Detection System - MLP")
 root.geometry("400x320")

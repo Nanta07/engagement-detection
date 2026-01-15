@@ -11,27 +11,19 @@ import zipfile
 import requests
 import shutil
 
-# ============================================================
 # FLASK
-# ============================================================
 app = Flask(__name__)
 
-# ============================================================
 # CONFIG
-# ============================================================
 BASE_FOLDER = "/home/elvindo/raspi-engagement/esp32_data"
 UPLOAD_SERVER = "http://10.34.3.210:8000/upload_session"
 
 os.makedirs(BASE_FOLDER, exist_ok=True)
 
-# ============================================================
 # SESSION STATE
-# ============================================================
 CURRENT_SESSION = None
 
-# ============================================================
 # MEDIAPIPE & MODEL
-# ============================================================
 mp_face_mesh = mp.solutions.face_mesh
 face_mesh = mp_face_mesh.FaceMesh(
     static_image_mode=False,
@@ -40,9 +32,7 @@ face_mesh = mp_face_mesh.FaceMesh(
 
 model = joblib.load("Fix_kan.pkl")
 
-# ============================================================
 # SESSION CLASS
-# ============================================================
 class Session:
     def __init__(self, responden, sesi):
         self.responden = responden
@@ -139,9 +129,7 @@ class Session:
         shutil.rmtree(self.root)
         os.remove(zip_path)
 
-# ============================================================
 # API: RECEIVE FRAME
-# ============================================================
 @app.route("/upload_frame", methods=["POST"])
 def upload_frame():
     global CURRENT_SESSION
@@ -164,9 +152,7 @@ def upload_frame():
 
     return "OK", 200
 
-# ============================================================
 # API: STOP SESSION
-# ============================================================
 @app.route("/stop_session", methods=["POST"])
 def stop_session():
     global CURRENT_SESSION
@@ -179,8 +165,6 @@ def stop_session():
 
     return "SESSION FINISHED & UPLOADED", 200
 
-# ============================================================
 # MAIN
-# ============================================================
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000)

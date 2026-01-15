@@ -8,16 +8,12 @@
 #define CAMERA_MODEL_AI_THINKER
 #include "camera_pins.h"
 
-// ================================
 // WIFI (RASPI ACCESS POINT)
-// ================================
 const char* WIFI_SSID = "RASPI_AP_ESP32";
 const char* WIFI_PASS = "raspi12345";
 
 const char* RASPI_IP   = "192.168.4.1";
 const int   RASPI_PORT = 5000;
-
-// ================================
 WebServer server(80);
 bool isStreaming = false;
 
@@ -25,9 +21,7 @@ bool isStreaming = false;
 String responden = "unknown";
 String sesi = "default";
 
-// ================================
 // WIFI CONNECT
-// ================================
 void connectWiFi() {
   Serial.print("[WiFi] Connecting");
   WiFi.mode(WIFI_STA);
@@ -49,9 +43,7 @@ void connectWiFi() {
   }
 }
 
-// ================================
 // HTTP CONTROL
-// ================================
 void handleSetSession() {
   responden = server.arg("responden");
   sesi      = server.arg("sesi");
@@ -74,9 +66,7 @@ void handleStop() {
   server.send(200, "text/plain", "STOPPED");
 }
 
-// ================================
 // SETUP
-// ================================
 void setup() {
   Serial.begin(115200);
   Serial.println("\nESP32-CAM START");
@@ -101,7 +91,7 @@ void setup() {
   config.pin_pwdn     = PWDN_GPIO_NUM;
   config.pin_reset    = RESET_GPIO_NUM;
 
-  // 🔥 PENTING: ringan & stabil
+  // ringan & stabil
   config.xclk_freq_hz = 20000000;
   config.pixel_format = PIXFORMAT_JPEG;
   config.frame_size   = FRAMESIZE_QVGA;   // 320x240
@@ -123,9 +113,7 @@ void setup() {
   Serial.println("[HTTP] Control server ready");
 }
 
-// ================================
 // LOOP
-// ================================
 void loop() {
   server.handleClient();
 
@@ -154,11 +142,11 @@ void loop() {
 
   Serial.printf("[POST] size=%d | code=%d\n", fb->len, code);
   if (code > 0) {
-    Serial.println(http.getString()); // harus "OK"
+    Serial.println(http.getString());
   }
 
   http.end();
   esp_camera_fb_return(fb);
 
-  delay(200); // ~5 FPS
+  delay(200);
 }
